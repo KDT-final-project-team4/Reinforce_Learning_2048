@@ -6,10 +6,10 @@ BOARD_SIZE = 4
 # Training
 # ----------------------------
 NUM_EPISODES = 50000
-ALPHA = 0.001
+ALPHA = 0.0001
 
 # feature별 방문횟수 기반 local alpha
-USE_VISIT_COUNT_ALPHA = True
+USE_VISIT_COUNT_ALPHA = False
 MIN_LOCAL_ALPHA = 0.00005
 
 # 안정성 확인을 위해 optimistic TD는 끔

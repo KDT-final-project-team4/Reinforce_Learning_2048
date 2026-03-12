@@ -34,7 +34,7 @@ class NTupleNetwork:
                 total += self.weights[idx]
 
         # symmetry와 tuple 개수 둘 다 반영해서 scale 안정화
-        return total / (len(boards) * len(self.tuples))
+        return total
 
     def update(self, board, td_error):
         boards = get_symmetries(board)
@@ -55,7 +55,7 @@ class NTupleNetwork:
                 else:
                     local_alpha = self.alpha
 
-                self.weights[idx] += (local_alpha * td_error) / feature_count
+                self.weights[idx] += local_alpha * td_error
 
     def state_dict(self):
         return {
