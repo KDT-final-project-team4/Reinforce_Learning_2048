@@ -1,94 +1,154 @@
-import gymnasium as gym
-from gymnasium import spaces
+import random
 import numpy as np
-import logic
-import math
 
-# ==========================================
-# 🎯 AI 보상(Reward) 및 페널티 설정 
-# (학습 방식을 바꾸고 싶다면 이 숫자들만 수정하세요!)
-# ==========================================
-PENALTY_INVALID_MOVE = -10.0       # 변화가 없는 방향(벽에 막힌 곳)으로 움직였을 때 주는 페널티
-REWARD_VALID_MOVE = 0.0            # 타일이 합쳐지진 않았지만, 정상적으로 이동했을 때 주는 기본 점수
-SCORE_MULTIPLIER = 1.0             # 게임 내 합체 점수(scoreGain)를 AI 보상으로 변환하는 배율
-# ==========================================
 
-class Game2048Env(gym.Env):
+class Game2048Env:
     def __init__(self):
-        super(Game2048Env, self).__init__()
-        self.action_space = spaces.Discrete(4)
-        self.observation_space = spaces.Box(low=0, high=16, shape=(16,), dtype=np.float32)
-        self.board = logic.makeEmptyBoard()
-        
-    def reset(self, seed=None, options=None):
-        super().reset(seed=seed)
-        self.board = logic.makeEmptyBoard()
-        logic.addRandomTile(self.board)
-        logic.addRandomTile(self.board)
-        return self._get_obs(), {}
-        
-    def _get_obs(self):
-        obs = np.zeros(16, dtype=np.float32)
-        idx = 0
-        for i in range(4):
-            for j in range(4):
-                val = self.board[i][j]
-                if val > 0:
-                    obs[idx] = np.log2(val)
-                idx += 1
-        return obs
+        self.size = 4
+        self.board = np.zeros((4, 4), dtype=int)
+        self.score = 0
+        self.last_move_score_gain = 0
 
-    def get_board(self):
-        return self.board
+    # -------------------------------------------------
+    # Core helpers
+    # -------------------------------------------------
+    def reset(self):
+        self.board = np.zeros((4, 4), dtype=int)
+        self.score = 0
+        self.last_move_score_gain = 0
+        self._add_random_tile(self.board)
+        self._add_random_tile(self.board)
+        return self.board.copy()
 
-    # 🔥 N-Tuple 학습을 위해 갈 수 있는 모든 방향의 시뮬레이션 결과를 반환
-    def get_simulated_moves(self):
-        directions = ["up", "down", "left", "right"]
-        valid_moves = {}
-        for dir_str in directions:
-            sim = logic.simulateMove(self.board, dir_str)
-            if sim["changed"]:
-                valid_moves[dir_str] = sim
-        return valid_moves
+    def _add_random_tile(self, board):
+        empties = list(zip(*np.where(board == 0)))
+        if not empties:
+            return False
 
-    # 🔥 AI가 선택한 최고의 시뮬레이션 결과를 실제 보드에 적용하고 턴 넘기기
-    def step_after_state(self, best_sim):
-        self.board = best_sim["result"]
-        
-        # 🚨 상단에서 설정한 커스텀 보상값이 적용됩니다.
-        reward = REWARD_VALID_MOVE + (best_sim["scoreGain"] * SCORE_MULTIPLIER)
-        
-        logic.addRandomTile(self.board)
-        
-        terminated = logic.isGameOver(self.board)
-        max_tile = max(max(r) for r in self.board)
-        
-        return self._get_obs(), reward, terminated, False, {"highest": max_tile, "scoreGain": reward}
+        r, c = random.choice(empties)
+        board[r][c] = 2 if random.random() < 0.9 else 4
+        return True
 
-    # (기존 방식 유지) 일반적인 스텝 함수
-    def step(self, action):
-        directions = {0: "up", 1: "down", 2: "left", 3: "right"}
-        dir_str = directions[action]
-        
-        sim = logic.simulateMove(self.board, dir_str)
-        reward = 0.0
-        terminated = False
-        info = {"scoreGain": 0, "highest": max(max(r) for r in self.board)}
-        
-        if not sim["changed"]:
-            # 🚨 상단에서 설정한 페널티가 적용됩니다.
-            reward = PENALTY_INVALID_MOVE
+    def can_move(self, board=None):
+        board = self.board if board is None else board
+
+        if np.any(board == 0):
+            return True
+
+        for r in range(4):
+            for c in range(3):
+                if board[r][c] == board[r][c + 1]:
+                    return True
+
+        for c in range(4):
+            for r in range(3):
+                if board[r][c] == board[r + 1][c]:
+                    return True
+
+        return False
+
+    # -------------------------------------------------
+    # Movement logic
+    # action: 0 up, 1 down, 2 left, 3 right
+    # -------------------------------------------------
+    def move_left(self, board):
+        new_board = np.zeros_like(board)
+        moved = False
+        score_gain = 0
+
+        for r in range(4):
+            row = [v for v in board[r] if v != 0]
+            merged = []
+            i = 0
+
+            while i < len(row):
+                if i + 1 < len(row) and row[i] == row[i + 1]:
+                    v = row[i] * 2
+                    merged.append(v)
+                    score_gain += v
+                    i += 2
+                else:
+                    merged.append(row[i])
+                    i += 1
+
+            merged += [0] * (4 - len(merged))
+            new_board[r] = merged
+
+            if not np.array_equal(board[r], new_board[r]):
+                moved = True
+
+        return new_board, score_gain, moved
+
+    def move_right(self, board):
+        flipped = np.fliplr(board)
+        moved_board, score_gain, moved = self.move_left(flipped)
+        return np.fliplr(moved_board), score_gain, moved
+
+    def move_up(self, board):
+        rotated = np.rot90(board, 1)
+        moved_board, score_gain, moved = self.move_left(rotated)
+        return np.rot90(moved_board, -1), score_gain, moved
+
+    def move_down(self, board):
+        rotated = np.rot90(board, -1)
+        moved_board, score_gain, moved = self.move_left(rotated)
+        return np.rot90(moved_board, 1), score_gain, moved
+
+    def simulate_move(self, board, action):
+        temp = np.array(board, dtype=int).copy()
+
+        if action == 0:
+            result, score_gain, valid = self.move_up(temp)
+        elif action == 1:
+            result, score_gain, valid = self.move_down(temp)
+        elif action == 2:
+            result, score_gain, valid = self.move_left(temp)
+        elif action == 3:
+            result, score_gain, valid = self.move_right(temp)
         else:
-            self.board = sim["result"]
-            
-            # 🚨 상단에서 설정한 커스텀 보상값이 적용됩니다.
-            reward = REWARD_VALID_MOVE + (sim["scoreGain"] * SCORE_MULTIPLIER)
-            
-            info["scoreGain"] = sim["scoreGain"]
-            logic.addRandomTile(self.board)
-            info["highest"] = max(max(r) for r in self.board)
-            
-        if logic.isGameOver(self.board):
-            terminated = True
-            
-        return self._get_obs(), reward, terminated, False, info
+            return {"valid": False, "result": temp, "scoreGain": 0}
+
+        return {
+            "valid": valid,
+            "result": result,
+            "scoreGain": score_gain,
+        }
+
+    def step(self, action):
+        sim = self.simulate_move(self.board, action)
+
+        if not sim["valid"]:
+            done = not self.can_move(self.board)
+            self.last_move_score_gain = 0
+            return self.board.copy(), done
+
+        self.board = sim["result"]
+        self.score += sim["scoreGain"]
+        self.last_move_score_gain = sim["scoreGain"]
+
+        self._add_random_tile(self.board)
+        done = not self.can_move(self.board)
+        return self.board.copy(), done
+
+    # -------------------------------------------------
+    # Chance node successors for expectimax
+    # -------------------------------------------------
+    def get_random_successors(self, afterstate):
+        afterstate = np.array(afterstate, dtype=int)
+        empties = list(zip(*np.where(afterstate == 0)))
+        if not empties:
+            return []
+
+        successors = []
+        p_cell = 1.0 / len(empties)
+
+        for (r, c) in empties:
+            b2 = afterstate.copy()
+            b2[r][c] = 2
+            successors.append((b2, p_cell * 0.9))
+
+            b4 = afterstate.copy()
+            b4[r][c] = 4
+            successors.append((b4, p_cell * 0.1))
+
+        return successors

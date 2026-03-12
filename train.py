@@ -1,183 +1,156 @@
-import time
-import pickle
-import math
-import random
 import os
+import pickle
+import numpy as np
+
+import config
+from agent import Agent2048
 from env import Game2048Env
+from ntuple_network import NTupleNetwork
 
-class NTupleNetwork:
-    def __init__(self):
-        self.lut = {}
-        # 🔥 학습률을 낮춰서 수치가 폭발하는 것을 1차 방지합니다.
-        self.alpha = 0.001  
 
-    def _get_tuples(self, board):
-        b = [[0]*4 for _ in range(4)]
-        for i in range(4):
-            for j in range(4):
-                if board[i][j] > 0:
-                    b[i][j] = int(math.log2(board[i][j]))
-        
-        tuples = []
-        for i in range(4):
-            tuples.append(f"R{i}_{b[i][0]}_{b[i][1]}_{b[i][2]}_{b[i][3]}")
-            tuples.append(f"C{i}_{b[0][i]}_{b[1][i]}_{b[2][i]}_{b[3][i]}")
-        for i in range(3):
-            for j in range(2):
-                tuples.append(f"B23_{i}_{j}_{b[i][j]}_{b[i][j+1]}_{b[i][j+2]}_{b[i+1][j]}_{b[i+1][j+1]}_{b[i+1][j+2]}")
-                tuples.append(f"B32_{i}_{j}_{b[j][i]}_{b[j+1][i]}_{b[j+2][i]}_{b[j][i+1]}_{b[j+1][i+1]}_{b[j+2][i+1]}")
-        return tuples
+def save_training_state(net, episode, scores, max_tiles, reached_1024, reached_2048, best_avg_score):
+    net.save(config.CHECKPOINT_PATH)
 
-    def get_value(self, board):
-        tuples = self._get_tuples(board)
-        val = sum(self.lut.get(t, 0.0) for t in tuples)
-        # 🔥 만약 수치가 꼬였더라도 에러를 내뿜지 않고 0으로 방어합니다.
-        if math.isnan(val) or math.isinf(val):
-            return 0.0 
-        return val
+    state = {
+        "episode": episode,
+        "scores": scores,
+        "max_tiles": max_tiles,
+        "reached_1024": reached_1024,
+        "reached_2048": reached_2048,
+        "best_avg_score": best_avg_score,
+    }
 
-    def update(self, board, error):
-        if math.isnan(error) or math.isinf(error):
-            return
-        
-        # 🔥 핵심 안전장치 (Gradient Clipping): 한 번에 너무 큰 깨달음을 얻어 뇌정지가 오는 걸 막습니다.
-        error = max(-100.0, min(100.0, error)) 
-        
-        tuples = self._get_tuples(board)
-        for t in tuples:
-            self.lut[t] = self.lut.get(t, 0.0) + self.alpha * error
+    with open(config.TRAIN_STATE_PATH, "wb") as f:
+        pickle.dump(state, f)
+
+
+def load_training_state():
+    if not os.path.exists(config.TRAIN_STATE_PATH):
+        return None
+
+    with open(config.TRAIN_STATE_PATH, "rb") as f:
+        return pickle.load(f)
+
 
 def main():
-    # 🚨 이전 학습에서 NaN으로 오염된(뇌정지 온) 파일을 깨끗하게 지우고 새 출발합니다!
-    if os.path.exists("2048_ntuple_model.pkl"):
-        os.remove("2048_ntuple_model.pkl")
-        print("⚠️ 기존에 오염된 모델 파일을 삭제하고 초기화했습니다!")
+    os.makedirs(config.MODEL_DIR, exist_ok=True)
 
     env = Game2048Env()
     net = NTupleNetwork()
-    
-    episodes = 50000 
-    
-    # 🎲 탐험률(Epsilon) 설정
-    epsilon = 0.1         # 초기 탐험 확률 (10% 확률로 엉뚱한 길 가보기)
-    epsilon_min = 0.001   # 최소 탐험 확률 (0.1% 유지)
-    epsilon_decay = 0.9995 # 매 판마다 서서히 탐험을 줄이고 실력 발휘
-    
-    print("🧠 [N-Tuple Network + 탐험률 + 안전장치] 안정적인 학습을 시작합니다!")
-    
-    start_time = time.time()
-    
-    # 기록용 리스트
-    scores_window = []
-    steps_window = []
-    max_tiles_window = []
-    td_errors_window = []
-    global_step = 0
-    
-    for episode in range(1, episodes + 1):
-        env.reset()
-        score = 0
-        steps = 0
-        total_td_error = 0.0
-        
-        while True:
-            valid_moves = env.get_simulated_moves()
-            
-            # 더 이상 움직일 수 없으면 종료 (게임 오버 시 가치 0으로 업데이트)
-            if not valid_moves:
-                net.update(env.get_board(), 0 - net.get_value(env.get_board()))
+    agent = Agent2048(env, net)
+
+    scores = []
+    max_tiles = []
+    reached_1024 = []
+    reached_2048 = []
+
+    start_episode = 0
+    best_avg_score = -1.0
+
+    # resume
+    if os.path.exists(config.CHECKPOINT_PATH) and os.path.exists(config.TRAIN_STATE_PATH):
+        print("기존 체크포인트를 불러와서 이어서 학습합니다.")
+        net.load(config.CHECKPOINT_PATH)
+
+        state = load_training_state()
+        start_episode = state["episode"] + 1
+        scores = state["scores"]
+        max_tiles = state["max_tiles"]
+        reached_1024 = state["reached_1024"]
+        reached_2048 = state["reached_2048"]
+        best_avg_score = state.get("best_avg_score", -1.0)
+
+    for episode in range(start_episode, config.NUM_EPISODES):
+        board = env.reset()
+        done = False
+
+        while not done:
+            action, afterstate, _ = agent.select_action(board)
+
+            if action is None or afterstate is None:
                 break
-            
-            best_action = None
-            best_sim = None
-            
-            # 🔥 탐험(Exploration) vs 활용(Exploitation) 적용
-            if random.random() < epsilon:
-                # 탐험: 갈 수 있는 길 중 아무거나 무작위 선택
-                best_action = random.choice(list(valid_moves.keys()))
-                best_sim = valid_moves[best_action]
+
+            next_state, done = env.step(action)
+
+            # afterstate TD target
+            if done:
+                target = 0.0
             else:
-                # 활용: 머리를 써서 가장 가치가 높은 최고의 방향 선택
-                best_value = -float('inf')
-                for dir_str, sim in valid_moves.items():
-                    v = sim["scoreGain"] + net.get_value(sim["result"])
-                    if v > best_value:
-                        best_value = v
-                        best_action = dir_str
-                        best_sim = sim
-            
-            # 안전장치 (원래는 발생 안 함)
-            if best_action is None:
-                break
-            
-            # TD(0) 가치 업데이트 및 오차(Loss) 계산
-            current_value = net.get_value(env.get_board())
-            target_value = best_sim["scoreGain"] + net.get_value(best_sim["result"])
-            
-            error = target_value - current_value
-            net.update(env.get_board(), error)
-            
-            # 통계 기록
-            total_td_error += abs(error)
-            steps += 1
-            global_step += 1
-            
-            # env.py로 실제 턴 진행
-            _, reward, terminated, _, info = env.step_after_state(best_sim)
-            score += reward
-            
-            if terminated:
-                break
-                
-        # 한 판이 끝나면 탐험률(Epsilon)을 서서히 낮춰줌
-        if epsilon > epsilon_min:
-            epsilon *= epsilon_decay
-            
-        scores_window.append(score)
-        steps_window.append(steps)
-        max_tiles_window.append(info["highest"])
-        td_errors_window.append(total_td_error / steps if steps > 0 else 0)
-        
-        # 🔥 DQN 때처럼 예쁜 100판 요약 표 출력
+                next_action, next_afterstate, next_reward = agent.select_action(next_state)
+
+                if next_action is None or next_afterstate is None:
+                    target = 0.0
+                else:
+                    target = next_reward + net.get_value(next_afterstate)
+
+            current_value = net.get_value(afterstate)
+            td_error = target - current_value
+            net.update(afterstate, td_error)
+
+            board = next_state
+
+        final_score = env.score
+        max_tile = int(np.max(board))
+
+        scores.append(final_score)
+        max_tiles.append(max_tile)
+        reached_1024.append(1 if max_tile >= 1024 else 0)
+        reached_2048.append(1 if max_tile >= 2048 else 0)
+
         if episode % 100 == 0:
-            avg_score = sum(scores_window) / len(scores_window)
-            avg_steps = sum(steps_window) / len(steps_window)
-            avg_max_tile = sum(max_tiles_window) / len(max_tiles_window)
-            max_tile_ever = max(max_tiles_window)
-            avg_loss = sum(td_errors_window) / len(td_errors_window)
-            time_elapsed = int(time.time() - start_time)
-            fps = int(global_step / time_elapsed) if time_elapsed > 0 else 0
-            
-            print(f"\n----------------------------------")
-            print(f"| 진행 상황 (rollout)   |          |")
-            print(f"|    평균 이동 횟수     | {avg_steps:<8.1f} |")
-            print(f"|    평균 획득 점수     | {avg_score:<8.1f} |")
-            print(f"|    탐험 확률 (랜덤)   | {epsilon:<8.4f} |")
-            print(f"| 시간 (time)           |          |")
-            print(f"|    진행된 판 수       | {episode:<8} |")
-            print(f"|    초당 스텝 (fps)    | {fps:<8} |")
-            print(f"|    경과 시간 (초)     | {time_elapsed:<8} |")
-            print(f"|    총 누적 스텝       | {global_step:<8} |")
-            print(f"| 학습 (train)          |          |")
-            print(f"|    평균 손실값 (Loss) | {avg_loss:<8.4f} |")
-            print(f"|    학습된 패턴 수     | {len(net.lut):<8} |")
-            print(f"----------------------------------")
-            print(f" 🏆 [100판 요약] 이번 최고 타일: {int(max_tile_ever)} | 평균 타일: {avg_max_tile:.1f}")
-            print(f"----------------------------------")
-            
-            scores_window = []
-            steps_window = []
-            max_tiles_window = []
-            td_errors_window = []
-            
-        # 1만 판마다 모델 세이브
-        if episode % 10000 == 0:
-            with open("2048_ntuple_model.pkl", "wb") as f:
-                pickle.dump(net.lut, f)
-            
-    with open("2048_ntuple_model.pkl", "wb") as f:
-        pickle.dump(net.lut, f)
-    print("학습 완료! '2048_ntuple_model.pkl' 파일이 저장되었습니다.")
+            recent_scores = scores[-100:]
+            recent_tiles = max_tiles[-100:]
+            recent_1024 = reached_1024[-100:]
+            recent_2048 = reached_2048[-100:]
+
+            print(
+                f"{episode} "
+                f"avg score {np.mean(recent_scores):.2f} | "
+                f"avg max tile {np.mean(recent_tiles):.2f} | "
+                f"1024 rate {np.mean(recent_1024) * 100:.1f}% | "
+                f"2048 rate {np.mean(recent_2048) * 100:.1f}%"
+            )
+
+        # best model 저장
+        if len(scores) >= config.EVAL_WINDOW:
+            current_avg = float(np.mean(scores[-config.EVAL_WINDOW:]))
+            if current_avg > best_avg_score:
+                best_avg_score = current_avg
+                net.save(config.BEST_MODEL_PATH)
+                print(
+                    f"[BEST] episode {episode} | "
+                    f"avg score ({config.EVAL_WINDOW}) = {best_avg_score:.2f}"
+                )
+
+        # periodic checkpoint
+        if episode % config.CHECKPOINT_EVERY == 0 and episode > 0:
+            save_training_state(
+                net,
+                episode,
+                scores,
+                max_tiles,
+                reached_1024,
+                reached_2048,
+                best_avg_score,
+            )
+            print(f"[CHECKPOINT] saved at episode {episode}")
+
+    # final save
+    net.save(config.MODEL_PATH)
+
+    save_training_state(
+        net,
+        config.NUM_EPISODES - 1,
+        scores,
+        max_tiles,
+        reached_1024,
+        reached_2048,
+        best_avg_score,
+    )
+
+    print(f"final model saved -> {config.MODEL_PATH}")
+    print(f"best model saved -> {config.BEST_MODEL_PATH}")
+
 
 if __name__ == "__main__":
     main()
