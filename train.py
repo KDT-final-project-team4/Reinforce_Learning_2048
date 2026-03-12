@@ -1,6 +1,7 @@
 import os
 import pickle
 import numpy as np
+import csv
 
 import config
 from agent import Agent2048
@@ -32,8 +33,40 @@ def load_training_state():
         return pickle.load(f)
 
 
+def init_log():
+    log_path = os.path.join(config.MODEL_DIR, "train_log.csv")
+
+    if not os.path.exists(log_path):
+        with open(log_path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                "episode",
+                "avg_score",
+                "avg_max_tile",
+                "rate_1024",
+                "rate_2048",
+                "best_avg_score"
+            ])
+
+
+def write_log(episode, avg_score, avg_max_tile, rate_1024, rate_2048, best_avg_score):
+    log_path = os.path.join(config.MODEL_DIR, "train_log.csv")
+
+    with open(log_path, "a", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            episode,
+            avg_score,
+            avg_max_tile,
+            rate_1024,
+            rate_2048,
+            best_avg_score
+        ])
+
+
 def main():
     os.makedirs(config.MODEL_DIR, exist_ok=True)
+    init_log()
 
     env = Game2048Env()
     net = NTupleNetwork()
@@ -103,12 +136,26 @@ def main():
             recent_1024 = reached_1024[-100:]
             recent_2048 = reached_2048[-100:]
 
+            avg_score = float(np.mean(recent_scores))
+            avg_max_tile = float(np.mean(recent_tiles))
+            rate_1024 = float(np.mean(recent_1024) * 100)
+            rate_2048 = float(np.mean(recent_2048) * 100)
+
             print(
                 f"{episode} "
-                f"avg score {np.mean(recent_scores):.2f} | "
-                f"avg max tile {np.mean(recent_tiles):.2f} | "
-                f"1024 rate {np.mean(recent_1024) * 100:.1f}% | "
-                f"2048 rate {np.mean(recent_2048) * 100:.1f}%"
+                f"avg score {avg_score:.2f} | "
+                f"avg max tile {avg_max_tile:.2f} | "
+                f"1024 rate {rate_1024:.1f}% | "
+                f"2048 rate {rate_2048:.1f}%"
+            )
+
+            write_log(
+                episode,
+                avg_score,
+                avg_max_tile,
+                rate_1024,
+                rate_2048,
+                best_avg_score
             )
 
         # best model 저장

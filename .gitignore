@@ -1,1 +1,3 @@
 __pycache__/
+model/*.csv
+model/*.png
