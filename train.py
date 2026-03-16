@@ -9,7 +9,7 @@ from env import Game2048Env
 from ntuple_network import NTupleNetwork
 
 
-def save_training_state(net, episode, scores, max_tiles, reached_1024, reached_2048, best_avg_score):
+def save_training_state(net, episode, scores, max_tiles, reached_1024, reached_2048, reached_4096, reached_8192, best_avg_score):
     net.save(config.CHECKPOINT_PATH)
 
     state = {
@@ -18,6 +18,8 @@ def save_training_state(net, episode, scores, max_tiles, reached_1024, reached_2
         "max_tiles": max_tiles,
         "reached_1024": reached_1024,
         "reached_2048": reached_2048,
+        "reached_4096": reached_4096,
+        "reached_8192": reached_8192,
         "best_avg_score": best_avg_score,
     }
 
@@ -45,11 +47,13 @@ def init_log():
                 "avg_max_tile",
                 "rate_1024",
                 "rate_2048",
+                "rate_4096",
+                "rate_8192",
                 "best_avg_score"
             ])
 
 
-def write_log(episode, avg_score, avg_max_tile, rate_1024, rate_2048, best_avg_score):
+def write_log(episode, avg_score, avg_max_tile, rate_1024, rate_2048, rate_4096, rate_8192, best_avg_score):
     log_path = os.path.join(config.MODEL_DIR, "train_log.csv")
 
     with open(log_path, "a", newline="", encoding="utf-8") as f:
@@ -60,6 +64,8 @@ def write_log(episode, avg_score, avg_max_tile, rate_1024, rate_2048, best_avg_s
             avg_max_tile,
             rate_1024,
             rate_2048,
+            rate_4096,
+            rate_8192,
             best_avg_score
         ])
 
@@ -76,6 +82,8 @@ def main():
     max_tiles = []
     reached_1024 = []
     reached_2048 = []
+    reached_4096 = []
+    reached_8192 = []
 
     start_episode = 0
     best_avg_score = -1.0
@@ -91,6 +99,8 @@ def main():
         max_tiles = state["max_tiles"]
         reached_1024 = state["reached_1024"]
         reached_2048 = state["reached_2048"]
+        reached_4096 = state.get("reached_4096", [])
+        reached_8192 = state.get("reached_8192", [])
         best_avg_score = state.get("best_avg_score", -1.0)
 
     for episode in range(start_episode, config.NUM_EPISODES):
@@ -129,24 +139,32 @@ def main():
         max_tiles.append(max_tile)
         reached_1024.append(1 if max_tile >= 1024 else 0)
         reached_2048.append(1 if max_tile >= 2048 else 0)
+        reached_4096.append(1 if max_tile >= 4096 else 0)
+        reached_8192.append(1 if max_tile >= 8192 else 0)
 
         if episode % 100 == 0:
             recent_scores = scores[-100:]
             recent_tiles = max_tiles[-100:]
             recent_1024 = reached_1024[-100:]
             recent_2048 = reached_2048[-100:]
+            recent_4096 = reached_4096[-100:]
+            recent_8192 = reached_8192[-100:]
 
             avg_score = float(np.mean(recent_scores))
             avg_max_tile = float(np.mean(recent_tiles))
             rate_1024 = float(np.mean(recent_1024) * 100)
             rate_2048 = float(np.mean(recent_2048) * 100)
+            rate_4096 = float(np.mean(recent_4096) * 100)
+            rate_8192 = float(np.mean(recent_8192) * 100)
 
             print(
                 f"{episode} "
                 f"avg score {avg_score:.2f} | "
                 f"avg max tile {avg_max_tile:.2f} | "
                 f"1024 rate {rate_1024:.1f}% | "
-                f"2048 rate {rate_2048:.1f}%"
+                f"2048 rate {rate_2048:.1f}% | "
+                f"4096 rate {rate_4096:.1f}% | "
+                f"8192 rate {rate_8192:.1f}%"
             )
 
             write_log(
@@ -155,6 +173,8 @@ def main():
                 avg_max_tile,
                 rate_1024,
                 rate_2048,
+                rate_4096,
+                rate_8192,
                 best_avg_score
             )
 
@@ -178,6 +198,8 @@ def main():
                 max_tiles,
                 reached_1024,
                 reached_2048,
+                reached_4096,
+                reached_8192,
                 best_avg_score,
             )
             print(f"[CHECKPOINT] saved at episode {episode}")
@@ -192,6 +214,8 @@ def main():
         max_tiles,
         reached_1024,
         reached_2048,
+        reached_4096,
+        reached_8192,
         best_avg_score,
     )
 
