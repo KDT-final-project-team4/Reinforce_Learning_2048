@@ -3,7 +3,6 @@ import pygame
 
 import config
 
-
 TILE_COLORS = {
     0: (205, 193, 180),
     2: (238, 228, 218),
@@ -17,6 +16,8 @@ TILE_COLORS = {
     512: (237, 200, 80),
     1024: (237, 197, 63),
     2048: (237, 194, 46),
+    4096: (138, 43, 226),
+    8192: (255, 20, 147),
 }
 
 pygame.font.init()
@@ -114,8 +115,10 @@ def draw_tile(screen, row, col, value, scale=1.0):
     font = TILE_FONT
     if value >= 1024:
         font = pygame.font.SysFont("arial", 28, bold=True)
-    if value >= 16384:
+    if value >= 10000:
         font = pygame.font.SysFont("arial", 22, bold=True)
+    if value >= 100000:
+        font = pygame.font.SysFont("arial", 18, bold=True)
 
     text_color = config.TEXT_DARK if value <= 4 else config.TEXT_LIGHT
     text = font.render(str(value), True, text_color)
@@ -174,7 +177,6 @@ def animate_transition(screen, old_board, new_board, score, best_tile, ai_enable
                     continue
 
                 if (r, c) in changed:
-                    # pop animation
                     if t < 0.5:
                         scale = 0.8 + 0.4 * (t / 0.5)
                     else:
@@ -189,4 +191,110 @@ def animate_transition(screen, old_board, new_board, score, best_tile, ai_enable
         pygame.display.flip()
 
         if t >= 1.0:
+            break
+
+
+# -----------------------------
+# 목적지 추적 매핑 함수
+# -----------------------------
+def get_1d_mapping(line_vals):
+    mapping = {}
+    merged_indices = set()
+    new_line = []
+    target_idx = 0
+    
+    for orig_idx, val in line_vals:
+        if len(new_line) > 0:
+            prev_target, prev_val = new_line[-1]
+            if prev_val == val and prev_target not in merged_indices:
+                mapping[orig_idx] = prev_target
+                new_line[-1] = (prev_target, prev_val * 2)
+                merged_indices.add(prev_target)
+                continue
+        
+        mapping[orig_idx] = target_idx
+        new_line.append((target_idx, val))
+        target_idx += 1
+        
+    return mapping
+
+def get_movement_map(board, action):
+    mapping = {}
+    if action == 2: # LEFT
+        for r in range(4):
+            line = [(c, board[r][c]) for c in range(4) if board[r][c] != 0]
+            map_1d = get_1d_mapping(line)
+            for orig_c, new_c in map_1d.items():
+                mapping[(r, orig_c)] = (r, new_c)
+    elif action == 3: # RIGHT
+        for r in range(4):
+            line = [(c, board[r][c]) for c in range(3, -1, -1) if board[r][c] != 0]
+            map_1d = get_1d_mapping(line)
+            for orig_c, new_c in map_1d.items():
+                mapping[(r, orig_c)] = (r, 3 - new_c)
+    elif action == 0: # UP
+        for c in range(4):
+            line = [(r, board[r][c]) for r in range(4) if board[r][c] != 0]
+            map_1d = get_1d_mapping(line)
+            for orig_r, new_r in map_1d.items():
+                mapping[(orig_r, c)] = (new_r, c)
+    elif action == 1: # DOWN
+        for c in range(4):
+            line = [(r, board[r][c]) for r in range(3, -1, -1) if board[r][c] != 0]
+            map_1d = get_1d_mapping(line)
+            for orig_r, new_r in map_1d.items():
+                mapping[(orig_r, c)] = (3 - new_r, c)
+    return mapping
+
+
+def animate_slide(screen, old_board, action, score, best_tile, ai_enabled, restart_button, ai_button, duration=0.1):
+    start = time.time()
+    tile_total_size = (config.BOARD_PIXEL_SIZE - config.GRID_PADDING * 5) // 4 + config.GRID_PADDING
+    
+    # 여기서 이동 타겟 좌표들을 가져옵니다.
+    move_map = get_movement_map(old_board, action)
+
+    while True:
+        elapsed = time.time() - start
+        progress = min(1.0, elapsed / duration)
+
+        screen.fill(config.BACKGROUND_COLOR)
+        draw_header(screen, score, best_tile, ai_enabled)
+        restart_button.draw(screen)
+        ai_button.draw(screen)
+
+        draw_board_base(screen)
+        
+        rect = pygame.Rect(config.BOARD_LEFT, config.BOARD_TOP, config.BOARD_PIXEL_SIZE, config.BOARD_PIXEL_SIZE)
+        screen.set_clip(rect)
+
+        for r in range(4):
+            for c in range(4):
+                val = int(old_board[r][c])
+                if val != 0:
+                    target_r, target_c = move_map.get((r, c), (r, c))
+                    dx = (target_c - c) * tile_total_size
+                    dy = (target_r - r) * tile_total_size
+                    
+                    t_rect = tile_rect(r, c)
+                    moving_rect = t_rect.copy()
+                    moving_rect.x += int(dx * progress)
+                    moving_rect.y += int(dy * progress)
+                    
+                    color = TILE_COLORS.get(val, (60, 58, 50))
+                    pygame.draw.rect(screen, color, moving_rect, border_radius=10)
+                    
+                    font = TILE_FONT
+                    if val >= 1024: font = pygame.font.SysFont("arial", 28, bold=True)
+                    if val >= 10000: font = pygame.font.SysFont("arial", 22, bold=True)
+                    if val >= 100000: font = pygame.font.SysFont("arial", 18, bold=True)
+                    
+                    text_color = config.TEXT_DARK if val <= 4 else config.TEXT_LIGHT
+                    text = font.render(str(val), True, text_color)
+                    screen.blit(text, text.get_rect(center=moving_rect.center))
+
+        screen.set_clip(None)
+        pygame.display.flip()
+
+        if progress >= 1.0:
             break
