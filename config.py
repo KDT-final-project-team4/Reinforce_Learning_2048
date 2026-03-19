@@ -5,7 +5,7 @@ BOARD_SIZE = 4
 # ----------------------------
 # Training
 # ----------------------------
-NUM_EPISODES = 50000
+NUM_EPISODES = 100000
 ALPHA = 0.0001
 
 # feature별 방문횟수 기반 local alpha
