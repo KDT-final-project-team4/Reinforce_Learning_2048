@@ -24,6 +24,7 @@ EMPTY_TILE = (205, 193, 180)
 TEXT_DARK = (119, 110, 101)
 TEXT_LIGHT = (249, 246, 242)
 BUTTON = (143, 122, 102)
+BUTTON_HOVER = (163, 142, 122)
 
 TILE_COLORS = {
     0: (205, 193, 180),
@@ -43,10 +44,10 @@ TILE_COLORS = {
 }
 
 WEIGHT_FILES = {
-    "EASY": "model/best_ntuple_weights_10000.pkl",
-    "MEDIUM": "model/best_ntuple_weights_30000.pkl",
-    "HARD": "model/best_ntuple_weights_50000.pkl",
-    "MASTER": "model/best_ntuple_weights_70000.pkl",
+    "EASY": "best_ntuple_weights_10000.pkl",
+    "MEDIUM": "best_ntuple_weights_30000.pkl",
+    "HARD": "best_ntuple_weights_50000.pkl",
+    "MASTER": "best_ntuple_weights_70000.pkl",
 }
 
 TITLE_FONT = pygame.font.SysFont("arial", 38, bold=True)
@@ -129,16 +130,13 @@ def draw_center_info(ai_enabled, user_dead, ai_dead, mode):
     text1 = LABEL_FONT.render("R: Restart (Menu)", True, TEXT_DARK)
     text3 = LABEL_FONT.render("Arrow Keys / Mouse Swipe = USER move", True, TEXT_DARK)
 
-    # 첫 번째 줄 (Y: 90)
     screen.blit(text1, text1.get_rect(center=(cx, 90)))
     
     if mode in ["VS", "AI_SOLO"]:
         text2 = LABEL_FONT.render(f"AI AUTO: {'ON' if ai_enabled else 'OFF'} (A)", True, TEXT_DARK)
-        # 두 번째 줄 (Y: 130)
         screen.blit(text2, text2.get_rect(center=(cx, 130)))
     
     if mode in ["VS", "USER_SOLO"]:
-        # 세 번째 줄 조작법 안내 -> 아예 화면 맨 아래(Y: 720)로 바짝 내림
         screen.blit(text3, text3.get_rect(center=(cx, 720)))
 
     status = []
@@ -148,7 +146,6 @@ def draw_center_info(ai_enabled, user_dead, ai_dead, mode):
         status.append("AI DEAD")
 
     if status:
-        # 상태 메시지(GAME OVER 등)는 조작법 바로 위(Y: 680)에 표시
         s = LABEL_FONT.render(" | ".join(status), True, (180, 40, 40))
         screen.blit(s, s.get_rect(center=(cx, 680)))
 
@@ -190,24 +187,76 @@ def draw_result(ai_env, user_env, ai_board, user_board):
 
 def show_menu():
     modes = ["VS", "AI_SOLO", "USER_SOLO"]
+    mode_labels = ["VS BATTLE", "AI SOLO", "USER SOLO"]
     difficulties = ["EASY", "MEDIUM", "HARD", "MASTER"]
+    
+    # 2048 타일 색상을 활용한 난이도별 색상 
+    diff_colors = [
+        (238, 228, 218),  # EASY (2 타일)
+        (245, 149, 99),   # MEDIUM (16 타일)
+        (246, 94, 59),    # HARD (64 타일)
+        (138, 43, 226)    # MASTER (4096 타일 - 튀는 보라색)
+    ]
+    diff_text_colors = [TEXT_DARK, TEXT_LIGHT, TEXT_LIGHT, TEXT_LIGHT]
+    
     mode_idx = 0
     diff_idx = 1
     
+    # 패널 및 버튼 위치 설정
+    panel_rect = pygame.Rect(WIDTH//2 - 380, HEIGHT//2 - 260, 760, 520)
+    start_btn_rect = pygame.Rect(WIDTH//2 - 150, HEIGHT//2 + 150, 300, 65)
+    
+    mode_rects = [pygame.Rect(WIDTH//2 - 290 + (200 * i), HEIGHT//2 - 90, 180, 55) for i in range(3)]
+    diff_rects = [pygame.Rect(WIDTH//2 - 330 + (170 * i), HEIGHT//2 + 40, 150, 55) for i in range(4)]
+
     running = True
     while running:
         screen.fill(BACKGROUND)
+        mouse_pos = pygame.mouse.get_pos()
         
-        title = RESULT_FONT.render("2048 GAME MENU", True, TEXT_DARK)
-        screen.blit(title, title.get_rect(center=(WIDTH//2, 200)))
+        # 메인 패널 그리기
+        pygame.draw.rect(screen, PANEL, panel_rect, border_radius=20)
         
-        mode_text = VALUE_FONT.render(f"MODE: {modes[mode_idx]} (Press 'M' to change)", True, TEXT_DARK)
-        diff_text = VALUE_FONT.render(f"DIFFICULTY: {difficulties[diff_idx]} (Press 'D' to change)", True, TEXT_DARK)
-        start_text = LABEL_FONT.render("Press ENTER to Start", True, (180, 40, 40))
+        # 타이틀
+        title = RESULT_FONT.render("2048 AI GAME MODE", True, TEXT_LIGHT)
+        screen.blit(title, title.get_rect(center=(WIDTH//2, HEIGHT//2 - 190)))
         
-        screen.blit(mode_text, mode_text.get_rect(center=(WIDTH//2, 350)))
-        screen.blit(diff_text, diff_text.get_rect(center=(WIDTH//2, 420)))
-        screen.blit(start_text, start_text.get_rect(center=(WIDTH//2, 550)))
+        # ---------------- MODE 선택 ----------------
+        mode_title = LABEL_FONT.render("SELECT MODE", True, TEXT_LIGHT)
+        screen.blit(mode_title, mode_title.get_rect(center=(WIDTH//2, HEIGHT//2 - 130)))
+        
+        for i, r in enumerate(mode_rects):
+            is_selected = (i == mode_idx)
+            is_hover = r.collidepoint(mouse_pos)
+            
+            color = TILE_COLORS[2048] if is_selected else (BUTTON_HOVER if is_hover else BUTTON)
+            txt_color = TEXT_DARK if is_selected else TEXT_LIGHT
+            
+            pygame.draw.rect(screen, color, r, border_radius=12)
+            label = VALUE_FONT.render(mode_labels[i], True, txt_color)
+            screen.blit(label, label.get_rect(center=r.center))
+
+        # -------------- DIFFICULTY 선택 --------------
+        diff_title = LABEL_FONT.render("SELECT DIFFICULTY", True, TEXT_LIGHT)
+        screen.blit(diff_title, diff_title.get_rect(center=(WIDTH//2, HEIGHT//2)))
+
+        for i, r in enumerate(diff_rects):
+            is_selected = (i == diff_idx)
+            is_hover = r.collidepoint(mouse_pos)
+            
+            color = diff_colors[i] if is_selected else (BUTTON_HOVER if is_hover else BUTTON)
+            txt_color = diff_text_colors[i] if is_selected else TEXT_LIGHT
+            
+            pygame.draw.rect(screen, color, r, border_radius=12)
+            label = VALUE_FONT.render(difficulties[i], True, txt_color)
+            screen.blit(label, label.get_rect(center=r.center))
+
+        # --------------- START 버튼 ---------------
+        start_hover = start_btn_rect.collidepoint(mouse_pos)
+        start_color = (242, 177, 121) if start_hover else TILE_COLORS[1024]
+        pygame.draw.rect(screen, start_color, start_btn_rect, border_radius=15)
+        start_label = VALUE_FONT.render("START GAME", True, TEXT_DARK)
+        screen.blit(start_label, start_label.get_rect(center=start_btn_rect.center))
         
         pygame.display.flip()
         
@@ -215,19 +264,23 @@ def show_menu():
             if event.type == pygame.QUIT:
                 pygame.quit()
                 exit()
-            if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_m:
-                    mode_idx = (mode_idx + 1) % len(modes)
-                elif event.key == pygame.K_d:
-                    diff_idx = (diff_idx + 1) % len(difficulties)
-                elif event.key == pygame.K_RETURN:
+            
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                for i, r in enumerate(mode_rects):
+                    if r.collidepoint(event.pos):
+                        mode_idx = i
+                for i, r in enumerate(diff_rects):
+                    if r.collidepoint(event.pos):
+                        diff_idx = i
+                if start_btn_rect.collidepoint(event.pos):
                     running = False
                     
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_RETURN:
+                running = False
+                
     return modes[mode_idx], difficulties[diff_idx]
 
-# -----------------------------
-# 정확한 목적지 추적 로직 추가
-# -----------------------------
+
 def get_1d_mapping(line_vals):
     mapping = {}
     merged_indices = set()
@@ -282,7 +335,6 @@ def animate_slide(redraw_background_fn, board_x, board, action, duration=0.1):
     start_time = time.time()
     tile_total_size = (BOARD_SIZE - GRID_PADDING * 5) // 4 + GRID_PADDING
     
-    # 2048 이동 규칙을 미리 시뮬레이션하여 타일들의 도착 좌표 계산
     move_map = get_movement_map(board, action)
 
     while True:
@@ -303,7 +355,6 @@ def animate_slide(redraw_background_fn, board_x, board, action, duration=0.1):
             for c in range(4):
                 val = board[r][c]
                 if val != 0:
-                    # 목적지를 매핑해서 진짜로 이동하는 픽셀 거리(dx, dy)만 계산
                     target_r, target_c = move_map.get((r, c), (r, c))
                     dx = (target_c - c) * tile_total_size
                     dy = (target_r - r) * tile_total_size
