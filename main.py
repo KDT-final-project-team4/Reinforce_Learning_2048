@@ -44,10 +44,10 @@ TILE_COLORS = {
 }
 
 WEIGHT_FILES = {
-    "EASY": "best_ntuple_weights_10000.pkl",
-    "MEDIUM": "best_ntuple_weights_30000.pkl",
-    "HARD": "best_ntuple_weights_50000.pkl",
-    "MASTER": "best_ntuple_weights_70000.pkl",
+    "EASY": "models/best_ntuple_weights_10000.pkl",
+    "MEDIUM": "models/best_ntuple_weights_30000.pkl",
+    "HARD": "models/best_ntuple_weights_50000.pkl",
+    "MASTER": "models/best_ntuple_weights_70000.pkl",
 }
 
 TITLE_FONT = pygame.font.SysFont("arial", 38, bold=True)
